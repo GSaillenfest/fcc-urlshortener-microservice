@@ -3,7 +3,7 @@ const express = require('express');
 
 const cors = require('cors');
 const app = express();
-const dns = require('node:dns');
+const dns = require('node:dns').promises;
 const bodyParser = require('body-parser');
 const { error } = require('node:console');
 const { url } = require('node:inspector');
@@ -31,17 +31,31 @@ const done = (err, data) => {
     console.log("Added: " + data);
   }
 };
-const addUrl = () => {
-  const url_to_add = new URLModel({
+//personal note: trying to use propmises
+const addUrlPromise = (requested_url) => {
+  return new Promise((resolve, reject) => {
+    const url_to_add = new URLModel({
     url: requested_url,
-  })
+  });
   url_to_add.save((err, data) => {
     if (err) 
-      return done(err);
-    done(null, data);
+      reject(err);
+
+    resolve(data);
+  });
   });
 };
 
+const getIdPromise = (requested_url) => {
+  return new Promise((resolve, reject) => {
+    URLModel.findOne({url: requested_url}, (err, data) => {
+      if (err)
+        reject(err);
+      console.log(data);
+      resolve(data._id);
+    });
+  });
+};
 
 app.use(cors());
 
@@ -57,36 +71,34 @@ app.get('/api/hello', function(req, res) {
 });
 
 let requested_url;
-app.post('/api/shorturl', urlencodedParser, (req, res) => {
+app.post('/api/shorturl', urlencodedParser, async (req, res) => {
+  
+  try {
   //get url
   requested_url = req.body.url;
   //extract hostname from previous url
   const requested_hostname = requested_url.replace(/^https?:\/\//, "")
-  //verify url validity and populate db
-  dns.lookup(requested_hostname, (err, address, family) => {
-    if (err) {
-      res.json({
-        error: 'invalid url'
-      });
-    }
-    else {
-      //add url to database
-      addUrl(requested_url)
-    }});
-  }, (req, res) => {
+  //verify url validity
+  const address = await dns.lookup(requested_hostname);
+  
+  //add url to database
+      const new_url = await addUrlPromise(requested_url);
+      
       //get short_url
-      let id;
-      URLModel.findOne({url: requested_url}, (err, data) => {
-        if (err)
-          done(err);
-        id = data._id;
-      })
+      let id = await getIdPromise(requested_url);
+
       //respond json object
       res.json({
         original_url: requested_url,
         short_url: id,
-      })
-    });
+      });
+      //catch errors occuring in try{} block
+    } catch (err) {
+        res.json({
+        error: 'invalid url'
+      });
+    }
+  });
 
 app.get('/api/shorturl/:url', (req, res) => {
 
